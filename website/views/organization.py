@@ -533,6 +533,11 @@ class Joinorganization(TemplateView):
 class Listbounties(TemplateView):
     model = Hunt
     template_name = "bounties_list.html"
+    VALID_ISSUE_STATES = {"open", "closed", "all"}
+
+    def normalize_issue_state(self, issue_state):
+        normalized_state = (issue_state or "open").lower()
+        return normalized_state if normalized_state in self.VALID_ISSUE_STATES else "open"
 
     def get(self, request, *args, **kwargs):
         search = request.GET.get("search", "")
@@ -585,7 +590,7 @@ class Listbounties(TemplateView):
             hunts = hunts.filter(domain=domain)
 
         # Fetch GitHub issues with $5 label for first page
-        issue_state = request.GET.get("issue_state", "open")
+        issue_state = self.normalize_issue_state(request.GET.get("issue_state", "open"))
         per_page = 10  # Number of issues to show per page
 
         try:
@@ -692,6 +697,7 @@ class Listbounties(TemplateView):
             the function returns an empty list and a count of zero. Errors are logged, and error results are not cached.
         """
         # Validate inputs
+        issue_state = self.normalize_issue_state(issue_state)
         if page < 1:
             page = 1
         if per_page < 1 or per_page > 100:  # GitHub API limits to 100 per page
@@ -709,9 +715,12 @@ class Listbounties(TemplateView):
 
         # GitHub API endpoint - use search API for better performance and pagination support
         try:
-            encoded_label = label.replace("$", "%24")
-            query_params = f"repo:OWASP-BLT/BLT+is:issue+state:{issue_state}+label:{encoded_label}"
-            url = f"https://api.github.com/search/issues?q={query_params}&page={page}&per_page={per_page}"
+            query_parts = ["repo:OWASP-BLT/BLT", "is:issue", f'label:"{label}"']
+            if issue_state != "all":
+                query_parts.append(f"is:{issue_state}")
+
+            encoded_query = quote_plus(" ".join(query_parts))
+            url = f"https://api.github.com/search/issues?q={encoded_query}&page={page}&per_page={per_page}"
 
             headers = {
                 "Accept": "application/vnd.github.v3+json",
@@ -809,7 +818,7 @@ def load_more_issues(request):
     AJAX handler for loading more GitHub issues with pagination support
     """
     page = int(request.GET.get("page", 1))
-    state = request.GET.get("state", "open")
+    state = Listbounties().normalize_issue_state(request.GET.get("state", "open"))
     per_page = int(request.GET.get("per_page", 10))
 
     # Validate inputs
