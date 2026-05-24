@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.utils.timezone import now
 
 from website.models import DailyStatusReport, Domain, Issue, Organization
-from website.views.organization import BountyPayoutsView
+from website.views.organization import BountyPayoutsView, Listbounties
 
 
 class DomainViewTests(TestCase):
@@ -204,6 +204,38 @@ class BountyPayoutsViewTests(TestCase):
         issues, total_count = result
         self.assertEqual(len(issues), 0)
         self.assertEqual(total_count, 0)
+
+
+class ListBountiesViewTests(TestCase):
+    def setUp(self):
+        self.view = Listbounties()
+
+    @patch("website.views.organization.requests.get")
+    def test_github_issues_with_invalid_state_falls_back_to_open(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"items": [], "total_count": 0}
+        mock_get.return_value = mock_response
+
+        self.view.github_issues_with_bounties("$5", "invalid-state", 1, 10)
+
+        request_url = mock_get.call_args.args[0]
+        self.assertIn("is%3Aopen", request_url)
+        self.assertNotIn("state%3Ainvalid-state", request_url)
+
+    @patch("website.views.organization.requests.get")
+    def test_github_issues_with_all_state_omits_state_qualifier(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"items": [], "total_count": 0}
+        mock_get.return_value = mock_response
+
+        self.view.github_issues_with_bounties("$5", "all", 1, 10)
+
+        request_url = mock_get.call_args.args[0]
+        self.assertNotIn("is%3Aopen", request_url)
+        self.assertNotIn("is%3Aclosed", request_url)
+        self.assertIn("label%3A%22%245%22", request_url)
 
 
 class SizzleCheckInViewTests(TestCase):
